@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: |
+  Human Approval Workflow - Lambda Durable Functions PoC
+
+  Demonstrates the "impossible" behavior for standard Lambda:
+  - SUSPENSION: Workflow pauses for days without timing out
+  - CHECKPOINTING: State persists in DynamoDB, no cost during suspension
+  - CALLBACKS: Manager approval resumes the workflow from checkpoint
+
+Parameters:
+  FromEmail:
+    Type: String
+    Description: Verified email address in SES for sending approval emails
+    Default: noreply@example.com
+
+Globals:
+  Function:
+    Timeout: 60
+    Runtime: java11
+    MemorySize: 512
+    Environment:
+      Variables:
+        WORKFLOW_TABLE_NAME: !Ref WorkflowStateTable
+
+Resources:
+  # DynamoDB Table for Workflow State (Checkpoints)
+  # This is the key to durable functions - persistent state storage
+  WorkflowStateTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ExpenseApprovalWorkflowStates
+      AttributeDefinitions:
+        - AttributeName: workflowId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: workflowId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Purpose
+          Value: DurableFunctionsPoC
+
+  # Lambda Function: Expense Submission Handler
+  # Handles initial submission and SUSPENDS the workflow
+  ExpenseSubmissionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ExpenseSubmissionHandler
+      CodeUri: ApprovalFunction
+      Handler: com.baeldung.lambda.approval.handler.ExpenseSubmissionHandler::handleRequest
+      Environment:
+        Variables:
+          FROM_EMAIL: !Ref FromEmail
+          CALLBACK_BASE_URL: !Sub "https://${ApprovalApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WorkflowStateTable
+        - SESCrudPolicy:
+            IdentityName: !Ref FromEmail
+      Events:
+        SubmitExpense:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApprovalApi
+            Path: /submit
+            Method: POST
+
+  # Lambda Function: Approval Callback Handler
+  # Handles manager approval/rejection and RESUMES the workflow
+  ApprovalCallbackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ApprovalCallbackHandler
+      CodeUri: ApprovalFunction
+      Handler: com.baeldung.lambda.approval.handler.ApprovalCallbackHandler::handleRequest
+      Environment:
+        Variables:
+          FROM_EMAIL: !Ref FromEmail
+          CALLBACK_BASE_URL: !Sub "https://${ApprovalApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref WorkflowStateTable
+        - SESCrudPolicy:
+            IdentityName: !Ref FromEmail
+      Events:
+        ApprovalCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApprovalApi
+            Path: /approval
+            Method: GET
+
+  # API Gateway
+  ApprovalApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+Outputs:
+  SubmitExpenseApiUrl:
+    Description: API Gateway endpoint URL for submitting expense reports
+    Value: !Sub "https://${ApprovalApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/submit"
+    Export:
+      Name: !Sub "${AWS::StackName}-SubmitExpenseApiUrl"
+
+  ApprovalCallbackApiUrl:
+    Description: API Gateway endpoint URL for approval callbacks (used in emails)
+    Value: !Sub "https://${ApprovalApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/approval"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApprovalCallbackApiUrl"
+
+  WorkflowStateTableName:
+    Description: DynamoDB table storing workflow checkpoints
+    Value: !Ref WorkflowStateTable
+    Export:
+      Name: !Sub "${AWS::StackName}-WorkflowStateTableName"
+
+  ExpenseSubmissionFunctionArn:
+    Description: ARN of the Expense Submission Lambda function
+    Value: !GetAtt ExpenseSubmissionFunction.Arn
+
+  ApprovalCallbackFunctionArn:
+    Description: ARN of the Approval Callback Lambda function
+    Value: !GetAtt ApprovalCallbackFunction.Arn
+
+  DurableFunctionsConcept:
+    Description: Key Concept Demonstration
+    Value: |
+      This PoC demonstrates Lambda Durable Functions:
+      1. SUSPENSION - Workflow pauses while waiting for manager approval (can be days!)
+      2. CHECKPOINTING - State persisted in DynamoDB (no Lambda running = no cost)
+      3. CALLBACKS - Manager clicks email link to resume workflow from checkpoint

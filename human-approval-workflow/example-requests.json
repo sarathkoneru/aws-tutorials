@@ -1,0 +1,137 @@
+{
+  "examples": [
+    {
+      "name": "Small Travel Expense",
+      "endpoint": "POST /submit",
+      "request": {
+        "employeeId": "emp-001",
+        "employeeName": "Alice Johnson",
+        "employeeEmail": "alice.johnson@example.com",
+        "managerId": "mgr-001",
+        "managerEmail": "manager@example.com",
+        "amount": 85.50,
+        "category": "Travel",
+        "description": "Taxi to client meeting"
+      }
+    },
+    {
+      "name": "Large Marketing Expense",
+      "endpoint": "POST /submit",
+      "request": {
+        "employeeId": "emp-002",
+        "employeeName": "Bob Smith",
+        "employeeEmail": "bob.smith@example.com",
+        "managerId": "mgr-002",
+        "managerEmail": "senior.manager@example.com",
+        "amount": 2500.00,
+        "category": "Marketing",
+        "description": "Conference booth rental for Tech Summit 2025"
+      }
+    },
+    {
+      "name": "Office Supplies Expense",
+      "endpoint": "POST /submit",
+      "request": {
+        "employeeId": "emp-003",
+        "employeeName": "Carol Davis",
+        "employeeEmail": "carol.davis@example.com",
+        "managerId": "mgr-001",
+        "managerEmail": "manager@example.com",
+        "amount": 127.99,
+        "category": "Office Supplies",
+        "description": "Ergonomic keyboard and mouse for home office"
+      }
+    },
+    {
+      "name": "Team Lunch Expense",
+      "endpoint": "POST /submit",
+      "request": {
+        "employeeId": "emp-004",
+        "employeeName": "David Lee",
+        "employeeEmail": "david.lee@example.com",
+        "managerId": "mgr-003",
+        "managerEmail": "team.lead@example.com",
+        "amount": 342.50,
+        "category": "Meals & Entertainment",
+        "description": "Team lunch for Q4 planning session"
+      }
+    }
+  ],
+  "curl_examples": {
+    "submit_expense": "curl -X POST https://YOUR_API_URL/submit -H \"Content-Type: application/json\" -d @example-requests/travel-expense.json",
+    "notes": [
+      "Replace YOUR_API_URL with the actual API Gateway URL from SAM deployment outputs",
+      "Update email addresses to your verified SES email addresses",
+      "The manager will receive an email with approval links",
+      "Clicking approve/reject will resume the workflow"
+    ]
+  },
+  "testing_scenarios": [
+    {
+      "scenario": "Quick Approval (< 1 minute)",
+      "steps": [
+        "1. Submit expense report",
+        "2. Immediately check manager's email",
+        "3. Click APPROVE within 30 seconds",
+        "4. Observe suspension duration: ~30 seconds"
+      ],
+      "demonstrates": "Workflow can handle immediate responses"
+    },
+    {
+      "scenario": "Delayed Approval (Hours)",
+      "steps": [
+        "1. Submit expense report in the morning",
+        "2. Manager approves in the afternoon (4-6 hours later)",
+        "3. Observe suspension duration: ~4-6 hours"
+      ],
+      "demonstrates": "Workflow suspends without timeout, no cost during waiting"
+    },
+    {
+      "scenario": "Multi-Day Approval",
+      "steps": [
+        "1. Submit expense report on Monday",
+        "2. Manager approves on Wednesday",
+        "3. Observe suspension duration: ~2 days"
+      ],
+      "demonstrates": "The 'impossible' behavior - workflow paused for days!"
+    },
+    {
+      "scenario": "Rejection Workflow",
+      "steps": [
+        "1. Submit expense report",
+        "2. Manager clicks REJECT",
+        "3. Employee receives rejection notification",
+        "4. Check DynamoDB for rejection reason"
+      ],
+      "demonstrates": "Workflow handles rejection path correctly"
+    },
+    {
+      "scenario": "Invalid Token Test",
+      "steps": [
+        "1. Submit expense report",
+        "2. Manually modify approval token in callback URL",
+        "3. Click modified link",
+        "4. Observe security error: 'Invalid or expired approval link'"
+      ],
+      "demonstrates": "Security validation prevents unauthorized approvals"
+    },
+    {
+      "scenario": "Duplicate Approval Test",
+      "steps": [
+        "1. Submit expense report",
+        "2. Click APPROVE",
+        "3. Click APPROVE again (same link)",
+        "4. Observe idempotency: 'This approval has already been processed'"
+      ],
+      "demonstrates": "Idempotent operations prevent duplicate processing"
+    }
+  ],
+  "monitoring": {
+    "check_workflow_status": "aws dynamodb get-item --table-name ExpenseApprovalWorkflowStates --key '{\"workflowId\": {\"S\": \"workflow-YOUR-ID\"}}'",
+    "list_all_workflows": "aws dynamodb scan --table-name ExpenseApprovalWorkflowStates",
+    "view_lambda_logs": {
+      "submission": "sam logs -n ExpenseSubmissionHandler --tail",
+      "callback": "sam logs -n ApprovalCallbackHandler --tail"
+    }
+  }
+}

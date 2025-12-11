@@ -1,0 +1,17 @@
+version = 0.1
+
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "human-approval-workflow"
+s3_prefix = "human-approval-workflow"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "FromEmail=\"noreply@example.com\""
+image_repositories = []
+
+[default.build]
+[default.build.parameters]
+cached = true
+parallel = true
